@@ -52,13 +52,10 @@ class AirtableHandler:
     def __init__(self):
         self.api_key = st.secrets["airtable"]["AIRTABLE_API_KEY"]
         self.base_id = st.secrets["airtable"]["AIRTABLE_BASE_ID"]
-        self.table_id = st.secrets["airtable"]["AIRTABLE_TABLE_NAME"]  # This is actually the table ID
+        self.table_id = st.secrets["airtable"]["AIRTABLE_TABLE_NAME"]
         
         try:
-            # Initialize table connection
             self.table = Table(self.api_key, self.base_id, self.table_id)
-            
-            # Verify connection with a test query
             _ = self.table.all(max_records=1)
             st.debug(f"Successfully connected to Airtable table: {self.table_id}")
             
@@ -75,35 +72,33 @@ class AirtableHandler:
             raise
 
     async def create_record(self, 
-                          company: str,
-                          isin: str,
-                          aws_url: str,
-                          event_date: str,
-                          event_type: str,
-                          document_type: str) -> bool:
+                          company_name: str,  # companyName from Quartr
+                          isin: str,          # ISIN used in query
+                          aws_url: str,       # S3 URL of uploaded file
+                          event_date: str,    # eventDate from Quartr
+                          event_title: str,   # eventTitle from Quartr
+                          document_type: str) -> bool:  # "slides", "report", "audio", or "transcript"
         try:
-            # Format the date to Airtable's preferred format
             formatted_date = datetime.strptime(event_date.split('T')[0], '%Y-%m-%d').strftime('%Y-%m-%d')
             
-            # Create the record with exact column names
             record = {
-                "company": company,
-                "ISIN": isin,
-                "aws_url": aws_url,
-                "eventDate": formatted_date,
-                "eventType": event_type,
-                "documentType": document_type
+                "company": company_name,      # Maps to 'company' column
+                "ISIN": isin,                 # Maps to 'ISIN' column
+                "aws_url": aws_url,          # Maps to 'aws_url' column
+                "eventDate": formatted_date,  # Maps to 'eventDate' column
+                "eventType": event_title,     # Maps to 'eventType' column
+                "documentType": document_type # Maps to 'documentType' column
             }
             
             created_record = self.table.create(record)
-            st.debug(f"Successfully created record in table {self.table_id}")
+            st.debug(f"Successfully created Airtable record: {created_record}")
             return True
             
         except Exception as e:
             st.error(f"Error creating Airtable record: {str(e)}")
             if "Unknown Field" in str(e):
                 st.error("""
-                Field name mismatch. Verify these column names exist in your table:
+                Field name mismatch. Please verify these exact column names exist in your Airtable:
                 - company
                 - ISIN
                 - aws_url
@@ -248,6 +243,7 @@ async def process_documents(isin_list: List[str], start_date: str, end_date: str
     
     try:
         async with aiohttp.ClientSession() as session:
+            # Validate ISINs first
             valid_isins = []
             for isin in isin_list:
                 company_data = await quartr.get_company_events(isin, session)
@@ -260,12 +256,14 @@ async def process_documents(isin_list: List[str], start_date: str, end_date: str
                 st.error("No valid ISINs found")
                 return
                 
+            # Get data for all companies
             companies_data = []
             for isin in valid_isins:
                 data = await quartr.get_company_events(isin, session)
                 if data:
                     companies_data.append(data)
             
+            # Count total files to process
             for company in companies_data:
                 for event in company.get('events', []):
                     event_date = event.get('eventDate', '').split('T')[0]
@@ -279,13 +277,13 @@ async def process_documents(isin_list: List[str], start_date: str, end_date: str
                 st.warning("No matching documents found for the specified criteria.")
                 return
 
-# Process files
+            # Process files
             for company in companies_data:
                 if not company:
                     continue
                     
                 company_name = company.get('displayName', 'unknown')
-                current_isin = company.get('isins', ['unknown'])[0]  # Get the first ISIN
+                current_isin = company.get('isins', ['unknown'])[0]
                 
                 for event in company.get('events', []):
                     event_date = event.get('eventDate', '').split('T')[0]
@@ -366,17 +364,16 @@ async def process_documents(isin_list: List[str], start_date: str, end_date: str
                                             )
                                 
                                 if success:
-                                    # Generate the AWS URL
+                                    # Generate the AWS URL and create Airtable record
                                     aws_url = f"s3://{bucket_name}/{s3_key}"
                                     
-                                    # Create Airtable record
                                     airtable_handler = AirtableHandler()
                                     airtable_success = await airtable_handler.create_record(
-                                        company=company_name,
+                                        company_name=company_name,
                                         isin=current_isin,
                                         aws_url=aws_url,
                                         event_date=event.get('eventDate', ''),
-                                        event_type=event.get('eventType', {}).get('type', ''),
+                                        event_title=event.get('eventTitle', ''),
                                         document_type=doc_type
                                     )
                                     
@@ -417,7 +414,6 @@ async def process_documents(isin_list: List[str], start_date: str, end_date: str
 def main():
     st.title("Quartr Data Retrieval and S3 Upload")
     
-    # Example ISINs
     st.sidebar.header("Help")
     st.sidebar.markdown("""
     ### Example ISINs:
@@ -502,4 +498,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
