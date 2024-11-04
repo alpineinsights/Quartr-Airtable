@@ -52,15 +52,26 @@ class AirtableHandler:
     def __init__(self):
         self.api_key = st.secrets["airtable"]["AIRTABLE_API_KEY"]
         self.base_id = st.secrets["airtable"]["AIRTABLE_BASE_ID"]
-        self.table_name = st.secrets["airtable"]["AIRTABLE_TABLE_NAME"]
+        self.table_id = st.secrets["airtable"]["AIRTABLE_TABLE_NAME"]  # This is actually the table ID
         
         try:
-            self.table = Table(self.api_key, self.base_id, self.table_name)
-            # Test the connection
-            _ = self.table.all()
-            st.debug("Successfully connected to Airtable")
+            # Initialize table connection
+            self.table = Table(self.api_key, self.base_id, self.table_id)
+            
+            # Verify connection with a test query
+            _ = self.table.all(max_records=1)
+            st.debug(f"Successfully connected to Airtable table: {self.table_id}")
+            
         except Exception as e:
-            st.error(f"Failed to initialize Airtable connection: {str(e)}")
+            st.error(f"""
+            Failed to initialize Airtable connection: {str(e)}
+            
+            Please verify:
+            1. Personal Access Token (should start with 'pat.')
+            2. Base ID: {self.base_id}
+            3. Table ID: {self.table_id}
+            4. Token has sufficient permissions
+            """)
             raise
 
     async def create_record(self, 
@@ -74,7 +85,7 @@ class AirtableHandler:
             # Format the date to Airtable's preferred format
             formatted_date = datetime.strptime(event_date.split('T')[0], '%Y-%m-%d').strftime('%Y-%m-%d')
             
-            # Create the record with exact column names from Airtable
+            # Create the record with exact column names
             record = {
                 "company": company,
                 "ISIN": isin,
@@ -84,27 +95,22 @@ class AirtableHandler:
                 "documentType": document_type
             }
             
-            # Debug info
-            st.debug(f"Attempting to create record:")
-            st.debug(f"Record data: {record}")
-            
             created_record = self.table.create(record)
-            st.debug(f"Successfully created record: {created_record}")
+            st.debug(f"Successfully created record in table {self.table_id}")
             return True
             
         except Exception as e:
-            error_msg = str(e)
-            st.error(f"Error creating Airtable record: {error_msg}")
-            
-            if "403" in error_msg:
+            st.error(f"Error creating Airtable record: {str(e)}")
+            if "Unknown Field" in str(e):
                 st.error("""
-                    Permission Error. Please check:
-                    1. Your API key is a valid Personal Access Token
-                    2. The Base ID is correct
-                    3. The Table name matches exactly (case-sensitive)
-                    4. The API key has permission to access this base
-                    """)
-            
+                Field name mismatch. Verify these column names exist in your table:
+                - company
+                - ISIN
+                - aws_url
+                - eventDate
+                - eventType
+                - documentType
+                """)
             return False
 
 class TranscriptProcessor:
