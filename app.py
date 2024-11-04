@@ -53,7 +53,15 @@ class AirtableHandler:
         self.api_key = st.secrets["airtable"]["AIRTABLE_API_KEY"]
         self.base_id = st.secrets["airtable"]["AIRTABLE_BASE_ID"]
         self.table_name = st.secrets["airtable"]["AIRTABLE_TABLE_NAME"]
-        self.table = Table(self.api_key, self.base_id, self.table_name)
+        
+        try:
+            self.table = Table(self.api_key, self.base_id, self.table_name)
+            # Test the connection
+            _ = self.table.all()
+            st.debug("Successfully connected to Airtable")
+        except Exception as e:
+            st.error(f"Failed to initialize Airtable connection: {str(e)}")
+            raise
 
     async def create_record(self, 
                           company: str,
@@ -66,20 +74,37 @@ class AirtableHandler:
             # Format the date to Airtable's preferred format
             formatted_date = datetime.strptime(event_date.split('T')[0], '%Y-%m-%d').strftime('%Y-%m-%d')
             
-            # Create the record
+            # Create the record with exact column names from Airtable
             record = {
-                "Company": company,
+                "company": company,
                 "ISIN": isin,
-                "AWS URL": aws_url,
-                "Event Date": formatted_date,
-                "Event Type": event_type,
-                "Document Type": document_type
+                "aws_url": aws_url,
+                "eventDate": formatted_date,
+                "eventType": event_type,
+                "documentType": document_type
             }
             
-            self.table.create(record)
+            # Debug info
+            st.debug(f"Attempting to create record:")
+            st.debug(f"Record data: {record}")
+            
+            created_record = self.table.create(record)
+            st.debug(f"Successfully created record: {created_record}")
             return True
+            
         except Exception as e:
-            st.error(f"Error creating Airtable record: {str(e)}")
+            error_msg = str(e)
+            st.error(f"Error creating Airtable record: {error_msg}")
+            
+            if "403" in error_msg:
+                st.error("""
+                    Permission Error. Please check:
+                    1. Your API key is a valid Personal Access Token
+                    2. The Base ID is correct
+                    3. The Table name matches exactly (case-sensitive)
+                    4. The API key has permission to access this base
+                    """)
+            
             return False
 
 class TranscriptProcessor:
