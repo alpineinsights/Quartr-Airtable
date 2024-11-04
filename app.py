@@ -14,7 +14,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
-from pyairtable.api.table import Table
+from pyairtable import Api, Base, Table
 
 # Page configuration
 st.set_page_config(
@@ -53,7 +53,8 @@ class AirtableHandler:
         self.api_key = st.secrets["airtable"]["AIRTABLE_API_KEY"]
         self.base_id = st.secrets["airtable"]["AIRTABLE_BASE_ID"]
         self.table_name = st.secrets["airtable"]["AIRTABLE_TABLE_NAME"]
-        self.table = Table(self.api_key, self.base_id, self.table_name)
+        self.api = Api(self.api_key)
+        self.table = self.api.table(self.base_id, self.table_name)
 
     async def create_record(self, 
                           company: str,
